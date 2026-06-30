@@ -25,6 +25,7 @@
 #ifndef QMDNSENGINE_SERVER_P_H
 #define QMDNSENGINE_SERVER_P_H
 
+#include <QNetworkInterface>
 #include <QObject>
 #include <QTimer>
 #include <QUdpSocket>
@@ -45,6 +46,7 @@ public:
     explicit ServerPrivate(Server *server);
 
     bool bindSocket(QUdpSocket &socket, const QHostAddress &address);
+    void writeMulticastDatagram(QUdpSocket &socket, const QByteArray &datagram, const QHostAddress &host, quint16 port);
 
     QTimer timer;
     QUdpSocket ipv4Socket;
@@ -58,6 +60,8 @@ private Q_SLOTS:
 private:
 
     Server *const q;
+    void filterInterfacesForMulticast();
+    QList<QNetworkInterface> m_goodInterfacesForMulticast;
 };
 
 }

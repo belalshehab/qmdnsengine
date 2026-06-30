@@ -23,6 +23,7 @@
  */
 
 #include <QDebug>
+#include <cstring>
 
 #include <qmdnsengine/dns.h>
 #include <qmdnsengine/record.h>
@@ -60,6 +61,17 @@ Record &Record::operator=(const Record &other)
 
 bool Record::operator==(const Record &other) const
 {
+    auto bitmapsEqual = [](const Bitmap &a, const Bitmap &b) -> bool {
+        if (a.length() != b.length()) {
+            return false;
+        }
+        const quint8 len = a.length();
+        if (len == 0) {
+            return true;
+        }
+        return std::memcmp(a.data(), b.data(), static_cast<size_t>(len)) == 0;
+    };
+
     return d->name == other.d->name &&
         d->type == other.d->type &&
         d->address == other.d->address &&
@@ -69,7 +81,7 @@ bool Record::operator==(const Record &other) const
         d->weight == other.d->weight &&
         d->port == other.d->port &&
         d->attributes == other.d->attributes &&
-        d->bitmap == other.d->bitmap;
+        bitmapsEqual(d->bitmap, other.d->bitmap);
 }
 
 bool Record::operator!=(const Record &other) const
