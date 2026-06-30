@@ -31,6 +31,7 @@
 #endif
 
 #include <QHostAddress>
+#include <QMap>
 #include <QNetworkInterface>
 
 #include <qmdnsengine/dns.h>
@@ -46,6 +47,7 @@ ServerPrivate::ServerPrivate(Server *server)
     : QObject(server),
       q(server)
 {
+    filterInterfacesForMulticast();
     connect(&timer, &QTimer::timeout, this, &ServerPrivate::onTimeout);
     connect(&ipv4Socket, &QUdpSocket::readyRead, this, &ServerPrivate::onReadyRead);
     connect(&ipv6Socket, &QUdpSocket::readyRead, this, &ServerPrivate::onReadyRead);
@@ -84,6 +86,40 @@ bool ServerPrivate::bindSocket(QUdpSocket &socket, const QHostAddress &address)
 #endif
 
     return true;
+}
+
+void ServerPrivate::writeMulticastDatagram(QUdpSocket &socket, const QByteArray &datagram, const QHostAddress &host, quint16 port)
+{
+    for (const auto &iface : qAsConst(m_goodInterfacesForMulticast)) {
+        socket.setMulticastInterface(iface);
+        socket.writeDatagram(datagram, host, port);
+    }
+}
+
+void ServerPrivate::filterInterfacesForMulticast()
+{
+    const QList<QNetworkInterface> interfaces = QNetworkInterface::allInterfaces();
+
+    QMap<QString, QNetworkInterface> goodIfaces;
+    for (const QNetworkInterface &iface : interfaces) {
+        if (!(iface.flags() & QNetworkInterface::IsUp) || !(iface.flags() & QNetworkInterface::IsRunning) ||
+            (iface.flags() & QNetworkInterface::IsLoopBack) || !(iface.flags() & QNetworkInterface::CanMulticast)) {
+            continue;
+        }
+        const QList<QNetworkAddressEntry> entries = iface.addressEntries();
+        for (const QNetworkAddressEntry &entry : entries) {
+            if (entry.ip().protocol() != QAbstractSocket::IPv4Protocol &&
+                entry.ip().protocol() != QAbstractSocket::IPv6Protocol) {
+                continue;
+            }
+            const QString ip = entry.ip().toString();
+            if (ip.startsWith("169.254.")) {
+                continue;
+            }
+            goodIfaces[iface.name()] = iface;
+        }
+    }
+    m_goodInterfacesForMulticast = goodIfaces.values();
 }
 
 void ServerPrivate::onTimeout()
@@ -144,9 +180,9 @@ void Server::sendMessage(const Message &message)
     QByteArray packet;
     toPacket(message, packet);
     if (message.address().protocol() == QAbstractSocket::IPv4Protocol) {
-        d->ipv4Socket.writeDatagram(packet, message.address(), message.port());
+        d->writeMulticastDatagram(d->ipv4Socket, packet, message.address(), message.port());
     } else {
-        d->ipv6Socket.writeDatagram(packet, message.address(), message.port());
+        d->writeMulticastDatagram(d->ipv6Socket, packet, message.address(), message.port());
     }
 }
 
@@ -154,6 +190,6 @@ void Server::sendMessageToAll(const Message &message)
 {
     QByteArray packet;
     toPacket(message, packet);
-    d->ipv4Socket.writeDatagram(packet, MdnsIpv4Address, MdnsPort);
-    d->ipv6Socket.writeDatagram(packet, MdnsIpv6Address, MdnsPort);
+    d->writeMulticastDatagram(d->ipv4Socket, packet, MdnsIpv4Address, MdnsPort);
+    d->writeMulticastDatagram(d->ipv6Socket, packet, MdnsIpv6Address, MdnsPort);
 }
